@@ -1,0 +1,253 @@
+---
+title: 'Coursera: Practical Machine Learning Project Writeup'
+author: "Edward Li"
+date: "August 16, 2015"
+output: html_document
+---
+
+0. Introduction
+---
+
+This is my write-up the Practical Machine Learning Course Project. This document will walk through the following key steps:
+
+1. Project objectives and data source
+2. Loading the data
+3. Data processing
+4. Model selection
+5. Cross-validation (estimation out of sample error)
+6. Final results
+
+The information should allow the reader to easily reproduce the results of the analysis.
+
+1. Project objectives and data source
+---
+
+The dataset used for this analysis contains sensor-based data collected from individuals conducting a weight lifting exercise. Individuals were asked to use 5 different weight lifting techniques (1 correct and 4 incorrect techniques). 
+
+As such, the the objective of this analysis is to use the data collected (along with any additional covariates calculated) to accurate predict which technique was used during exercise.
+
+**Please note:** The data for this project was graciously provided by Groupware@LES, for more information on the dataset, please visit their website at: http://groupware.les.inf.puc-rio.br/har#dataset.
+
+2. Loading the data
+---
+I start with loading all libraries I will need for this analysis. Please note that I have loaded packages for creating classification trees due to the nature of the problem.
+
+```
+##load all necessary packages
+library(caret)
+library(randomForest)
+library(gbm)
+library(splines)
+library(plyr)
+library(MASS)
+```
+
+Next, we load both the training and testing set that were downloaded from the course site. Additionally, I have set the seed to "1355" to allow for reproducability.
+
+```
+##loading data and set seed to allow for reproducability
+full.training = read.csv("~/Desktop/pml-training.csv",na.strings=c("NA","#DIV/0!"))
+final.test = read.csv("~/Desktop/pml-testing.csv")
+set.seed(1355)
+```
+
+Because the testing set provided online is for producing the final project results (as opposed to modeling testing), we next create new training, testing, and validation datasets so that we cross-validate our models and estimate out of sample error at the end of our analysis.
+
+```
+##create training, test, and validation sets
+inTrain = createDataPartition(full.training$classe,p=.6,list=FALSE)
+training <- full.training[inTrain, ]
+temp.test <- full.training[-inTrain, ]
+inBuild <- createDataPartition(temp.test$classe,p=0.5,list=FALSE)
+tester <- temp.test[inBuild, ]
+validation <- temp.test[-inBuild, ]
+remove(temp.test)
+```
+
+3. Data processing
+---
+
+In any analysis, the main purpose of data processing is three-fold:
+
+1. Create more covariates as necessary
+2. Remove unnecessary covariates
+3. Transform final set of covariates as necessary
+
+For #1 and #2, by reading the paper published by Groupware@LES, they created/calculated the kurtosis, mean, variance, standard deviation, etc. for each of their sensors based on a sliding window of 0.5 secs to 2.5 secs. **We will not be creating/using any of these variables.** 
+
+Upon visual inspection (I used Excel for ease, but R is perfectly suitable as well) of the training dataset, it is clear that those variables are only available for a window of time. However, since the goal of our analysis is to predict the action using a single data entry, we will not be using any data calcuated based on a sliding time window. **As such, we will remove these variables from our analysis.**
+
+After removing these variables, we still have 52 covariates. Since this is more than enough, we will also not be creating any new covariates. Lastly, transforms are not necessary as we are using classification models for this analysis.
+
+The code below removes the unneeded variables (those based on the sliding time window) from our training, testing, and validation data sets.
+
+```
+##removing unnecessary variables
+predictor.col <- c(8:11,37:49,60:68,84:86,102,113:124,140,151:159,160)
+training.pred <- training[,predictor.col]
+tester.pred <- tester[,predictor.col]
+validation.pred <- validation[,predictor.col]
+```
+
+4. Model selection
+---
+
+I tried 3 different classification models:
+
+1. Random Forest
+2. Generalized Boosted Models
+3. Linear Discriminant Analysis
+
+Below is the code to train each of these models:
+
+```
+##creating first set of potential learners
+rfMod <- train(classe~.,method="rf",data=training.pred,prox=TRUE)
+gbmMod <- train(classe~.,method="gbm",data=training.pred,verbose=FALSE)
+ldaMod <- train(classe~.,method="lda",data=training.pred)
+```
+
+5. Cross-validation (estimation out of sample error)
+---
+
+We then evaluate each of these models using the testing dataset that we previously created:
+
+**Random Forest Model**
+```
+confusionMatrix(tester.pred$classe,rf.predict)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1116    0    0    0    0
+         B    8  746    5    0    0
+         C    0    3  679    2    0
+         D    0    0    6  636    1
+         E    0    0    4    3  714
+
+Overall Statistics
+                                          
+               Accuracy : 0.9918          
+                 95% CI : (0.9885, 0.9944)
+    No Information Rate : 0.2865          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.9897          
+ Mcnemar's Test P-Value : NA              
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9929   0.9960   0.9784   0.9922   0.9986
+Specificity            1.0000   0.9959   0.9985   0.9979   0.9978
+Pos Pred Value         1.0000   0.9829   0.9927   0.9891   0.9903
+Neg Pred Value         0.9971   0.9991   0.9954   0.9985   0.9997
+Prevalence             0.2865   0.1909   0.1769   0.1634   0.1823
+Detection Rate         0.2845   0.1902   0.1731   0.1621   0.1820
+Detection Prevalence   0.2845   0.1935   0.1744   0.1639   0.1838
+Balanced Accuracy      0.9964   0.9959   0.9884   0.9950   0.9982
+```
+
+**Generalized Boosted Model**
+```
+confusionMatrix(tester.pred$classe,gbm.predict)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction    A    B    C    D    E
+         A 1103    9    4    0    0
+         B   23  714   20    2    0
+         C    0   11  662    9    2
+         D    3    1   16  616    7
+         E    3   10    6    8  694
+
+Overall Statistics
+                                          
+               Accuracy : 0.9658          
+                 95% CI : (0.9597, 0.9713)
+    No Information Rate : 0.2886          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.9568          
+ Mcnemar's Test P-Value : 0.0002623       
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.9744   0.9584   0.9350   0.9701   0.9872
+Specificity            0.9953   0.9858   0.9932   0.9918   0.9916
+Pos Pred Value         0.9884   0.9407   0.9678   0.9580   0.9626
+Neg Pred Value         0.9897   0.9902   0.9858   0.9942   0.9972
+Prevalence             0.2886   0.1899   0.1805   0.1619   0.1792
+Detection Rate         0.2812   0.1820   0.1687   0.1570   0.1769
+Detection Prevalence   0.2845   0.1935   0.1744   0.1639   0.1838
+Balanced Accuracy      0.9849   0.9721   0.9641   0.9809   0.9894
+```
+
+**Linear Discriminant Analysis**
+```
+confusionMatrix(tester.pred$classe,lda.predict)
+Confusion Matrix and Statistics
+
+          Reference
+Prediction   A   B   C   D   E
+         A 896  34  95  84   7
+         B 112 502  87  24  34
+         C  67  71 456  72  18
+         D  36  29  79 469  30
+         E  23 116  67  72 443
+
+Overall Statistics
+                                          
+               Accuracy : 0.7051          
+                 95% CI : (0.6905, 0.7193)
+    No Information Rate : 0.2891          
+    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+                  Kappa : 0.627           
+ Mcnemar's Test P-Value : < 2.2e-16       
+
+Statistics by Class:
+
+                     Class: A Class: B Class: C Class: D Class: E
+Sensitivity            0.7901   0.6676   0.5816   0.6505   0.8327
+Specificity            0.9211   0.9190   0.9274   0.9457   0.9180
+Pos Pred Value         0.8029   0.6614   0.6667   0.7294   0.6144
+Neg Pred Value         0.9152   0.9210   0.8987   0.9232   0.9722
+Prevalence             0.2891   0.1917   0.1998   0.1838   0.1356
+Detection Rate         0.2284   0.1280   0.1162   0.1196   0.1129
+Detection Prevalence   0.2845   0.1935   0.1744   0.1639   0.1838
+Balanced Accuracy      0.8556   0.7933   0.7545   0.7981   0.8754
+```
+
+For ease, the accuracy of each model for predicting on the testing dataset is listed below:
+
+* Random Forest:                99.18%
+* Generalized Boosted Model:    96.58%
+* Linear Discriminant Analysis: 70.51%
+
+Clearly, both the Random Forest and Generalized Boosted Model performed extremly well, but the **Random Forest Model performed the best with an out of sample error of <1%.** As such, I decided to select the random forest model as my final model.
+
+**Note:** Typically, I would consider creating some sort of stacked learner or ensemble learner (which is why I created both a testing and validation dataset). However, because a simple model (i.e. Random Forest) gets such accurate results, I did not feel it was necessary to further complicate it.
+
+6. Final results
+---
+
+The last step of this analysis is to test the model against the testing set provided online. To do this we:
+
+1. Remove the same variables we removed from our training set
+2. Apply our random forest model to predict classes
+3. Show results
+
+```
+##testing in final test set
+final.test.pred <- final.test[,c(8:11,37:49,60:68,84:86,102,113:124,140,151:159)]
+rf.test.predict <- predict(rfMod,final.test.pred)
+```
+```
+rf.test.predict
+ [1] B A B A A E D B A A B C B A E E A B B B
+Levels: A B C D E
+```
+
+The results displayed are what was submitted for the project.
